@@ -380,7 +380,7 @@
       chip.setAttribute('aria-live', 'polite');
       Object.assign(chip.style, {
         position:       'fixed',
-        top:            '1rem',
+        top:            '2.5rem',
         right:          '1.25rem',
         zIndex:         '2147483647',
         padding:        '6px 14px',
