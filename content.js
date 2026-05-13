@@ -225,6 +225,25 @@
     return Number.isFinite(pace) ? `${Math.round(pace * 100)}%` : '∞';
   }
 
+  /**
+   * Pick a tick color that contrasts with the track behind it. Walks up the
+   * ancestor chain until it finds an element with an opaque background, then
+   * uses sRGB relative luminance to choose light vs dark. This adapts to
+   * Claude's light/dark theme without needing to know how the theme is wired.
+   */
+  function pickTickColor(pb) {
+    for (let node = pb; node; node = node.parentElement) {
+      const m = getComputedStyle(node).backgroundColor.match(/[\d.]+/g);
+      if (!m || m.length < 3) continue;
+      const alpha = m.length >= 4 ? parseFloat(m[3]) : 1;
+      if (alpha < 0.05) continue;
+      const [r, g, b] = m.slice(0, 3).map(Number);
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      return lum < 128 ? '#f5f5f5' : '#121212';
+    }
+    return '#121212';
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   // "You are here" tick — a 2px vertical line at elapsedPct along the bar.
   // Attached to the bar's parent (not the bar itself) so it can extend above
@@ -250,7 +269,6 @@
         top:             '50%',
         width:           '2px',
         height:          'calc(100% + 8px)',
-        backgroundColor: '#121212',
         transform:       'translate(-50%, -50%)',
         borderRadius:    '1px',
         pointerEvents:   'none',
@@ -261,6 +279,12 @@
 
     const leftStr = `${elapsedPct.toFixed(2)}%`;
     if (tick.style.left !== leftStr) tick.style.left = leftStr;
+
+    const tickColor = pickTickColor(pb);
+    if (tick.dataset.appliedColor !== tickColor) {
+      tick.style.setProperty('background-color', tickColor, 'important');
+      tick.dataset.appliedColor = tickColor;
+    }
   }
 
   function removeTick(pb) {
