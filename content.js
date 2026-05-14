@@ -233,22 +233,27 @@
   }
 
   /**
-   * Pick a tick color that contrasts with the track behind it. Walks up the
-   * ancestor chain until it finds an element with an opaque background, then
-   * uses sRGB relative luminance to choose light vs dark. This adapts to
-   * Claude's light/dark theme without needing to know how the theme is wired.
+   * Pick a tick color that contrasts with the page behind it. We can't sample
+   * the track itself reliably — Claude paints it with a translucent fill like
+   * rgba(0, 0, 0, 0.08) that *renders* light on a white page and dark on a
+   * dark page, but whose raw RGB is identical in both themes. So we walk up
+   * the ancestor chain skipping any near-translucent layer until we find a
+   * fully opaque background to sample (usually <body>), then judge luminance.
+   * Falls back to prefers-color-scheme if the entire chain is transparent.
    */
   function pickTickColor(pb) {
     for (let node = pb; node; node = node.parentElement) {
       const m = getComputedStyle(node).backgroundColor.match(/[\d.]+/g);
       if (!m || m.length < 3) continue;
       const alpha = m.length >= 4 ? parseFloat(m[3]) : 1;
-      if (alpha < 0.05) continue;
+      if (alpha < 0.95) continue;
       const [r, g, b] = m.slice(0, 3).map(Number);
       const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
       return lum < 128 ? "#f5f5f5" : "#121212";
     }
-    return "#121212";
+    return matchMedia("(prefers-color-scheme: dark)").matches
+      ? "#f5f5f5"
+      : "#121212";
   }
 
   // ──────────────────────────────────────────────────────────────────────────
