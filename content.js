@@ -27,6 +27,15 @@
 // Session bars warn earlier (k=4); weekly bars trust the user more (k=8).
 // Over-pace behavior (pace > 1.0) is identical for both, saturating to
 // red at pace ≈ 1.18×.
+//
+// Grace period: on the local calendar date that a weekly bar resets, weekly
+// pace isn't actionable — either the remaining quota is about to be wiped,
+// or it just was and any usage in the few hours since looks comically fast
+// against an almost-empty elapsed-window. Weekly bars whose reset weekday
+// matches today (or whose computed reset wall-clock falls on today's date,
+// for the final-24h relative format) are excluded from the floating chip's
+// SLOW DOWN / KEEP GOING selection — the chip reflects the session bar
+// only. Bar colors and per-row pace readouts are unaffected.
 
 (() => {
   "use strict";
@@ -130,23 +139,59 @@
     );
   }
 
+  /** True iff two Dates fall on the same local calendar day. */
+  function sameLocalDate(a, b) {
+    return (
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate()
+    );
+  }
+
   /**
-   * Returns { elapsedPct, kind } where kind ∈ {'session','weekly'} — or null
-   * if the reset text doesn't describe a parseable time window.
+   * Extract just the weekday from a "Resets <Weekday> H:MM AM/PM" string,
+   * or null if the text isn't in that format. Distinct from parseWeekday
+   * (which returns minutes-until-next-reset) because we need to recognize
+   * "today is the reset day" *after* the reset has already happened today —
+   * at which point parseWeekday correctly rolls the next reset forward
+   * a week, and a wall-clock comparison would miss the grace window.
+   */
+  function parsedResetWeekday(text) {
+    const m = text.match(/Resets\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)/i);
+    return m ? DAY_MAP[m[1].slice(0, 3).toLowerCase()] : null;
+  }
+
+  /**
+   * Returns { elapsedPct, kind, resetsToday } where kind ∈ {'session','weekly'}
+   * and resetsToday is true on the local calendar date of a weekly reset —
+   * including the hours *after* the reset has fired, since pace is still
+   * meaningless that early into a fresh week. Returns null if the reset text
+   * doesn't describe a parseable time window.
    */
   function elapsedAndKind(resetText, pb) {
     if (!resetText) return null;
+    const now = new Date();
+    const weekday = parsedResetWeekday(resetText);
+    const resetsTodayByWeekday =
+      weekday !== null && weekday === now.getDay();
+
     const rel = parseRelative(resetText);
     if (rel !== null) {
       const kind = inferKind(pb, rel);
       const win = kind === "session" ? SESSION_WINDOW_MIN : WEEK_WINDOW_MIN;
-      return { elapsedPct: ((win - rel) / win) * 100, kind };
+      const resetAt = new Date(now.getTime() + rel * 60_000);
+      return {
+        elapsedPct: ((win - rel) / win) * 100,
+        kind,
+        resetsToday: resetsTodayByWeekday || sameLocalDate(now, resetAt),
+      };
     }
     const wk = parseWeekday(resetText);
     if (wk !== null) {
       return {
         elapsedPct: ((WEEK_WINDOW_MIN - wk) / WEEK_WINDOW_MIN) * 100,
         kind: "weekly",
+        resetsToday: resetsTodayByWeekday,
       };
     }
     return null;
@@ -164,6 +209,7 @@
         pace: usagePct > 0 ? Infinity : 0,
         elapsedPct,
         kind: e.kind,
+        resetsToday: e.resetsToday,
       };
     }
 
@@ -182,6 +228,7 @@
       pace,
       elapsedPct,
       kind: e.kind,
+      resetsToday: e.resetsToday,
     };
   }
 
@@ -460,8 +507,14 @@
         const usedSpan = findUsedSpan(pb);
         if (usedSpan) augmentUsedSpan(usedSpan, usagePct, result, color);
 
-        // Track the highest-pace paced bar for the global chip.
-        if (!maxResult || result.pace > maxResult.pace) maxResult = result;
+        // Track the highest-pace paced bar for the global chip — but skip
+        // weekly bars whose quota resets today. The remaining weekly headroom
+        // is about to be wiped, so a high weekly pace isn't actionable; the
+        // chip should reflect the session bar only.
+        const eligibleForChip = !(result.kind === "weekly" && result.resetsToday);
+        if (eligibleForChip && (!maxResult || result.pace > maxResult.pace)) {
+          maxResult = result;
+        }
       } else {
         applyStyle(fill, NEUTRAL_COLOR);
         removeTick(pb);
