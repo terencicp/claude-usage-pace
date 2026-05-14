@@ -384,6 +384,45 @@
     }
   }
 
+  const CHIP_STYLE = {
+    position: "fixed",
+    top: "4.5rem",
+    right: "1.25rem",
+    zIndex: "2147483647",
+    padding: "6px 14px",
+    borderRadius: "999px",
+    fontFamily: "inherit",
+    fontSize: "11px",
+    fontWeight: "700",
+    letterSpacing: "0.08em",
+    color: "white",
+    textShadow: "0 1px 1px rgba(0, 0, 0, 0.35)",
+    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.25)",
+    pointerEvents: "none",
+    userSelect: "none",
+    transition: "background-color 0.3s ease",
+  };
+
+  function createChip() {
+    const chip = document.createElement("div");
+    chip.id = CHIP_ID;
+    chip.setAttribute("role", "status");
+    chip.setAttribute("aria-live", "polite");
+    Object.assign(chip.style, CHIP_STYLE);
+    document.body.appendChild(chip);
+    return chip;
+  }
+
+  function setChipText(chip, text) {
+    if (chip.textContent !== text) chip.textContent = text;
+  }
+
+  function setChipColor(chip, color) {
+    if (chip.dataset.appliedColor === color) return;
+    chip.style.setProperty("background-color", color, "important");
+    chip.dataset.appliedColor = color;
+  }
+
   /**
    * Insert / update / remove the floating top-right pace chip.
    * Idempotent: only touches DOM when text or color actually changes.
@@ -396,49 +435,9 @@
       return;
     }
 
-    const message = maxResult.pace >= 1.0 ? "SLOW DOWN" : "KEEP GOING";
-    const color = paceColor(maxResult.position);
-
-    if (!chip) {
-      chip = document.createElement("div");
-      chip.id = CHIP_ID;
-      chip.setAttribute("role", "status");
-      chip.setAttribute("aria-live", "polite");
-      Object.assign(chip.style, {
-        position: "fixed",
-        top: "4.5rem",
-        right: "1.25rem",
-        zIndex: "2147483647",
-        padding: "6px 14px",
-        borderRadius: "999px",
-        fontFamily: "inherit",
-        fontSize: "11px",
-        fontWeight: "700",
-        letterSpacing: "0.08em",
-        color: "white",
-        textShadow: "0 1px 1px rgba(0, 0, 0, 0.35)",
-        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.25)",
-        pointerEvents: "none",
-        userSelect: "none",
-        transition: "background-color 0.3s ease",
-      });
-      document.body.appendChild(chip);
-
-      chip.animate(
-        [
-          { opacity: 1   },
-          { opacity: 0.8 },
-          { opacity: 1   },
-        ],
-        { duration: 6500, iterations: Infinity, easing: "ease-in-out" },
-      );
-    }
-
-    if (chip.textContent !== message) chip.textContent = message;
-    if (chip.dataset.appliedColor !== color) {
-      chip.style.setProperty("background-color", color, "important");
-      chip.dataset.appliedColor = color;
-    }
+    if (!chip) chip = createChip();
+    setChipText(chip, maxResult.pace >= 1.0 ? "SLOW DOWN" : "KEEP GOING");
+    setChipColor(chip, paceColor(maxResult.position));
   }
 
   function processPage() {
