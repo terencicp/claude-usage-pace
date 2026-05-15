@@ -172,8 +172,7 @@
     if (!resetText) return null;
     const now = new Date();
     const weekday = parsedResetWeekday(resetText);
-    const resetsTodayByWeekday =
-      weekday !== null && weekday === now.getDay();
+    const resetsTodayByWeekday = weekday !== null && weekday === now.getDay();
 
     const rel = parseRelative(resetText);
     if (rel !== null) {
@@ -432,7 +431,7 @@
   }
 
   const CHIP_STYLE = {
-    position: "fixed",
+    position: "absolute",
     top: "4.5rem",
     right: "1.25rem",
     zIndex: "2147483647",
@@ -450,13 +449,40 @@
     transition: "background-color 0.3s ease",
   };
 
-  function createChip() {
+  function findScrollParent(node) {
+    let el = node;
+    while (el && el !== document.body) {
+      const style = getComputedStyle(el);
+      const overflowY = style.overflowY;
+      if (
+        (overflowY === "auto" || overflowY === "scroll") &&
+        el.scrollHeight > el.clientHeight
+      ) {
+        return el;
+      }
+      el = el.parentElement;
+    }
+    return (
+      document.scrollingElement || document.documentElement || document.body
+    );
+  }
+
+  function ensureChipHost(host) {
+    if (!host) return;
+    const style = getComputedStyle(host);
+    if (style.position === "static") {
+      host.style.setProperty("position", "relative", "important");
+    }
+  }
+
+  function createChip(host) {
     const chip = document.createElement("div");
     chip.id = CHIP_ID;
     chip.setAttribute("role", "status");
     chip.setAttribute("aria-live", "polite");
     Object.assign(chip.style, CHIP_STYLE);
-    document.body.appendChild(chip);
+    ensureChipHost(host);
+    (host || document.body).appendChild(chip);
     return chip;
   }
 
@@ -474,7 +500,7 @@
    * Insert / update / remove the floating top-right pace chip.
    * Idempotent: only touches DOM when text or color actually changes.
    */
-  function updateChip(maxResult) {
+  function updateChip(maxResult, host) {
     let chip = document.getElementById(CHIP_ID);
 
     if (!maxResult) {
@@ -482,7 +508,12 @@
       return;
     }
 
-    if (!chip) chip = createChip();
+    if (!chip) {
+      chip = createChip(host);
+    } else if (host && chip.parentElement !== host) {
+      ensureChipHost(host);
+      host.appendChild(chip);
+    }
     setChipText(chip, maxResult.pace >= 1.0 ? "SLOW DOWN" : "KEEP GOING");
     setChipColor(chip, paceColor(maxResult.position));
   }
@@ -492,6 +523,7 @@
       '[role="progressbar"][aria-label="Usage"]',
     );
     let maxResult = null;
+    const chipHost = bars[0] ? findScrollParent(bars[0]) : document.body;
     for (const pb of bars) {
       const fill = pb.firstElementChild;
       if (!fill) continue;
@@ -511,7 +543,9 @@
         // weekly bars whose quota resets today. The remaining weekly headroom
         // is about to be wiped, so a high weekly pace isn't actionable; the
         // chip should reflect the session bar only.
-        const eligibleForChip = !(result.kind === "weekly" && result.resetsToday);
+        const eligibleForChip = !(
+          result.kind === "weekly" && result.resetsToday
+        );
         if (eligibleForChip && (!maxResult || result.pace > maxResult.pace)) {
           maxResult = result;
         }
@@ -520,7 +554,7 @@
         removeTick(pb);
       }
     }
-    updateChip(maxResult);
+    updateChip(maxResult, chipHost);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
