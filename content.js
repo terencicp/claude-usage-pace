@@ -31,11 +31,7 @@
 // Grace period: on the local calendar date that a weekly bar resets, weekly
 // pace isn't actionable — either the remaining quota is about to be wiped,
 // or it just was and any usage in the few hours since looks comically fast
-// against an almost-empty elapsed-window. Weekly bars whose reset weekday
-// matches today (or whose computed reset wall-clock falls on today's date,
-// for the final-24h relative format) are excluded from the floating chip's
-// SLOW DOWN / KEEP GOING selection — the chip reflects the session bar
-// only. Bar colors and per-row pace readouts are unaffected.
+// against an almost-empty elapsed-window.
 
 (() => {
   "use strict";
@@ -50,7 +46,6 @@
   const KNEE_POSITION = (GRADIENT_START + 100) / 2; // 60.5 — yellow midpoint
   const NEUTRAL_COLOR = "oklch(55% 0 0)"; // grey for non-paced bars
   const RECHECK_INTERVAL_MS = 60_000; // resample once a minute
-  const CHIP_ID = "usage-pace-chip";
 
   // Under-pace exponents. The session window is short (5 h), so we want to
   // warn early if usage outruns time-elapsed. The weekly window is long
@@ -139,50 +134,21 @@
     );
   }
 
-  /** True iff two Dates fall on the same local calendar day. */
-  function sameLocalDate(a, b) {
-    return (
-      a.getFullYear() === b.getFullYear() &&
-      a.getMonth() === b.getMonth() &&
-      a.getDate() === b.getDate()
-    );
-  }
-
   /**
-   * Extract just the weekday from a "Resets <Weekday> H:MM AM/PM" string,
-   * or null if the text isn't in that format. Distinct from parseWeekday
-   * (which returns minutes-until-next-reset) because we need to recognize
-   * "today is the reset day" *after* the reset has already happened today —
-   * at which point parseWeekday correctly rolls the next reset forward
-   * a week, and a wall-clock comparison would miss the grace window.
-   */
-  function parsedResetWeekday(text) {
-    const m = text.match(/Resets\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)/i);
-    return m ? DAY_MAP[m[1].slice(0, 3).toLowerCase()] : null;
-  }
-
-  /**
-   * Returns { elapsedPct, kind, resetsToday } where kind ∈ {'session','weekly'}
-   * and resetsToday is true on the local calendar date of a weekly reset —
-   * including the hours *after* the reset has fired, since pace is still
-   * meaningless that early into a fresh week. Returns null if the reset text
-   * doesn't describe a parseable time window.
+   * Returns { elapsedPct, kind } where kind ∈ {'session','weekly'}. Returns
+   * null if the reset text doesn't describe a parseable time window.
    */
   function elapsedAndKind(resetText, pb) {
     if (!resetText) return null;
     const now = new Date();
-    const weekday = parsedResetWeekday(resetText);
-    const resetsTodayByWeekday = weekday !== null && weekday === now.getDay();
 
     const rel = parseRelative(resetText);
     if (rel !== null) {
       const kind = inferKind(pb, rel);
       const win = kind === "session" ? SESSION_WINDOW_MIN : WEEK_WINDOW_MIN;
-      const resetAt = new Date(now.getTime() + rel * 60_000);
       return {
         elapsedPct: ((win - rel) / win) * 100,
         kind,
-        resetsToday: resetsTodayByWeekday || sameLocalDate(now, resetAt),
       };
     }
     const wk = parseWeekday(resetText);
@@ -190,7 +156,6 @@
       return {
         elapsedPct: ((WEEK_WINDOW_MIN - wk) / WEEK_WINDOW_MIN) * 100,
         kind: "weekly",
-        resetsToday: resetsTodayByWeekday,
       };
     }
     return null;
@@ -224,10 +189,7 @@
     }
     return {
       position: Math.max(0, Math.min(100, position)),
-      pace,
       elapsedPct,
-      kind: e.kind,
-      resetsToday: e.resetsToday,
     };
   }
 
@@ -271,11 +233,6 @@
     fill.style.setProperty("background-color", color, "important");
     fill.style.setProperty("background-image", "none", "important");
     lastApplied.set(fill, color);
-  }
-
-  /** Format pace as a percentage string: 0.68 → "68%", 1.20 → "120%", ∞ → "∞". */
-  function formatPace(pace) {
-    return Number.isFinite(pace) ? `${Math.round(pace * 100)}%` : "∞";
   }
 
   /**
@@ -353,177 +310,10 @@
     if (tick) tick.remove();
   }
 
-  /**
-   * Locate the "X% used" span associated with a progressbar. Returns either
-   * a fresh leaf span (first run) or a previously-augmented wrapper span.
-   */
-  function findUsedSpan(pb) {
-    let row = pb.parentElement;
-    for (let i = 0; row && i < 6; i++, row = row.parentElement) {
-      const barCount = row.querySelectorAll(
-        '[role="progressbar"][aria-label="Usage"]',
-      ).length;
-      if (barCount > 1) return null;
-      for (const s of row.querySelectorAll("span")) {
-        if (
-          s.hasAttribute("data-pace-used") ||
-          s.hasAttribute("data-pace-line")
-        )
-          continue;
-        if (s.hasAttribute("data-pace-augmented")) return s;
-        if (
-          s.children.length === 0 &&
-          /^\d+%\s*used$/i.test((s.textContent || "").trim())
-        ) {
-          return s;
-        }
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Augment the "X% used" span with a small second line showing pace.
-   * Idempotent: subsequent calls only update text/color when they actually
-   * change, so the MutationObserver doesn't loop on our own writes.
-   */
-  function augmentUsedSpan(usedSpan, usagePct, result, color) {
-    let inner = usedSpan.querySelector(":scope > [data-pace-used]");
-    let paceLine = usedSpan.querySelector(":scope > [data-pace-line]");
-
-    if (!inner || !paceLine) {
-      // First run on this span — restructure into a flex column.
-      usedSpan.textContent = "";
-      usedSpan.style.setProperty("display", "inline-flex", "important");
-      usedSpan.style.setProperty("flex-direction", "column", "important");
-      usedSpan.style.setProperty("align-items", "flex-end", "important");
-      usedSpan.style.setProperty("line-height", "1.15", "important");
-      usedSpan.setAttribute("data-pace-augmented", "1");
-
-      inner = document.createElement("span");
-      inner.setAttribute("data-pace-used", "1");
-      inner.style.setProperty("white-space", "nowrap", "important");
-      usedSpan.appendChild(inner);
-
-      paceLine = document.createElement("span");
-      paceLine.setAttribute("data-pace-line", "1");
-      paceLine.style.setProperty("font-size", "0.78em", "important");
-      paceLine.style.setProperty("white-space", "nowrap", "important");
-      paceLine.style.setProperty("margin-top", "1px", "important");
-      paceLine.style.setProperty(
-        "font-variant-numeric",
-        "tabular-nums",
-        "important",
-      );
-      usedSpan.appendChild(paceLine);
-    }
-
-    const usedText = `${usagePct}% used`;
-    if (inner.textContent !== usedText) inner.textContent = usedText;
-
-    const lineText = `Pace: ${formatPace(result.pace)}`;
-    if (paceLine.textContent !== lineText) paceLine.textContent = lineText;
-
-    if (paceLine.dataset.appliedColor !== color) {
-      paceLine.style.setProperty("color", color, "important");
-      paceLine.dataset.appliedColor = color;
-    }
-  }
-
-  const CHIP_STYLE = {
-    position: "absolute",
-    top: "4.5rem",
-    right: "1.25rem",
-    zIndex: "2147483647",
-    padding: "6px 14px",
-    borderRadius: "999px",
-    fontFamily: "inherit",
-    fontSize: "11px",
-    fontWeight: "700",
-    letterSpacing: "0.08em",
-    color: "white",
-    textShadow: "0 1px 1px rgba(0, 0, 0, 0.35)",
-    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.25)",
-    pointerEvents: "none",
-    userSelect: "none",
-    transition: "background-color 0.3s ease",
-  };
-
-  function findScrollParent(node) {
-    let el = node;
-    while (el && el !== document.body) {
-      const style = getComputedStyle(el);
-      const overflowY = style.overflowY;
-      if (
-        (overflowY === "auto" || overflowY === "scroll") &&
-        el.scrollHeight > el.clientHeight
-      ) {
-        return el;
-      }
-      el = el.parentElement;
-    }
-    return (
-      document.scrollingElement || document.documentElement || document.body
-    );
-  }
-
-  function ensureChipHost(host) {
-    if (!host) return;
-    const style = getComputedStyle(host);
-    if (style.position === "static") {
-      host.style.setProperty("position", "relative", "important");
-    }
-  }
-
-  function createChip(host) {
-    const chip = document.createElement("div");
-    chip.id = CHIP_ID;
-    chip.setAttribute("role", "status");
-    chip.setAttribute("aria-live", "polite");
-    Object.assign(chip.style, CHIP_STYLE);
-    ensureChipHost(host);
-    (host || document.body).appendChild(chip);
-    return chip;
-  }
-
-  function setChipText(chip, text) {
-    if (chip.textContent !== text) chip.textContent = text;
-  }
-
-  function setChipColor(chip, color) {
-    if (chip.dataset.appliedColor === color) return;
-    chip.style.setProperty("background-color", color, "important");
-    chip.dataset.appliedColor = color;
-  }
-
-  /**
-   * Insert / update / remove the floating top-right pace chip.
-   * Idempotent: only touches DOM when text or color actually changes.
-   */
-  function updateChip(maxResult, host) {
-    let chip = document.getElementById(CHIP_ID);
-
-    if (!maxResult) {
-      if (chip) chip.remove();
-      return;
-    }
-
-    if (!chip) {
-      chip = createChip(host);
-    } else if (host && chip.parentElement !== host) {
-      ensureChipHost(host);
-      host.appendChild(chip);
-    }
-    setChipText(chip, maxResult.pace >= 1.0 ? "SLOW DOWN" : "KEEP GOING");
-    setChipColor(chip, paceColor(maxResult.position));
-  }
-
   function processPage() {
     const bars = document.querySelectorAll(
       '[role="progressbar"][aria-label="Usage"]',
     );
-    let maxResult = null;
-    const chipHost = bars[0] ? findScrollParent(bars[0]) : document.body;
     for (const pb of bars) {
       const fill = pb.firstElementChild;
       if (!fill) continue;
@@ -536,25 +326,11 @@
         const color = paceColor(result.position);
         applyStyle(fill, color);
         ensureTick(pb, result.elapsedPct);
-        const usedSpan = findUsedSpan(pb);
-        if (usedSpan) augmentUsedSpan(usedSpan, usagePct, result, color);
-
-        // Track the highest-pace paced bar for the global chip — but skip
-        // weekly bars whose quota resets today. The remaining weekly headroom
-        // is about to be wiped, so a high weekly pace isn't actionable; the
-        // chip should reflect the session bar only.
-        const eligibleForChip = !(
-          result.kind === "weekly" && result.resetsToday
-        );
-        if (eligibleForChip && (!maxResult || result.pace > maxResult.pace)) {
-          maxResult = result;
-        }
       } else {
         applyStyle(fill, NEUTRAL_COLOR);
         removeTick(pb);
       }
     }
-    updateChip(maxResult, chipHost);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
