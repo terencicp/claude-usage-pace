@@ -73,28 +73,70 @@
   // ──────────────────────────────────────────────────────────────────────────
 
   function parseRelative(text) {
-    // "Resets in 4 hr 52 min" / "Resets in 23 min" / "Resets in 2 hr"
-    const m = text.match(/Resets\s+in\s+(?:(\d+)\s*hr)?\s*(?:(\d+)\s*min)?/i);
-    if (!m || (!m[1] && !m[2])) return null;
-    return parseInt(m[1] || "0", 10) * 60 + parseInt(m[2] || "0", 10);
+    // English: "Resets in 4 hr 52 min" / "Resets in 23 min" / "Resets in 2 hr"
+    // Spanish: "Se restablece en 4 h 12 min" / "Se restablece en 23 min"
+    const m = text.match(
+      /(Resets\s+in|Se\s+restablece\s+en)\s+(?:(\d+)\s*(?:hr|h|hora|horas))?\s*(?:(\d+)\s*(?:min|mins|minutos))?/i,
+    );
+    if (!m || (!m[2] && !m[3])) return null;
+    return parseInt(m[2] || "0", 10) * 60 + parseInt(m[3] || "0", 10);
   }
 
-  const DAY_MAP = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  const DAY_MAP = {
+    sun: 0,
+    mon: 1,
+    tue: 2,
+    wed: 3,
+    thu: 4,
+    fri: 5,
+    sat: 6,
+    dom: 0,
+    lun: 1,
+    mar: 2,
+    mie: 3,
+    jue: 4,
+    vie: 5,
+    sab: 6,
+  };
+
+  function normalizeText(text) {
+    return (text || "")
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase();
+  }
 
   function parseWeekday(text) {
-    // "Resets Thu 6:00 PM"
-    const m = text.match(
+    // English: "Resets Thu 6:00 PM"
+    // Spanish: "Se restablece jue, 18:00"
+    const m12 = text.match(
       /Resets\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\w*\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i,
     );
-    if (!m) return null;
-    const targetDay = DAY_MAP[m[1].slice(0, 3).toLowerCase()];
-    let hour = parseInt(m[2], 10);
-    const minute = parseInt(m[3], 10);
-    if (m[4].toUpperCase() === "PM" && hour !== 12) hour += 12;
-    if (m[4].toUpperCase() === "AM" && hour === 12) hour = 0;
+    const m24 = text.match(
+      /Se\s+restablece\s+([A-Za-z\u00C0-\u017F]{2,})\w*\s*,?\s*(\d{1,2}):(\d{2})/i,
+    );
+    if (!m12 && !m24) return null;
 
     const now = new Date();
     const next = new Date(now);
+    let targetDay;
+    let hour;
+    let minute;
+
+    if (m12) {
+      targetDay = DAY_MAP[m12[1].slice(0, 3).toLowerCase()];
+      hour = parseInt(m12[2], 10);
+      minute = parseInt(m12[3], 10);
+      if (m12[4].toUpperCase() === "PM" && hour !== 12) hour += 12;
+      if (m12[4].toUpperCase() === "AM" && hour === 12) hour = 0;
+    } else {
+      const dayKey = normalizeText(m24[1]).slice(0, 3);
+      targetDay = DAY_MAP[dayKey];
+      hour = parseInt(m24[2], 10);
+      minute = parseInt(m24[3], 10);
+    }
+
+    if (targetDay === undefined) return null;
     next.setHours(hour, minute, 0, 0);
     let daysAhead = targetDay - now.getDay();
     if (daysAhead < 0) daysAhead += 7;
@@ -117,9 +159,11 @@
     if (!node) return null;
     const h3 = node.querySelector("h3");
     if (!h3) return null;
-    const text = (h3.textContent || "").toLowerCase();
-    if (text.includes("weekly")) return "weekly";
-    if (text.includes("plan usage")) return "session";
+    const text = normalizeText(h3.textContent || "");
+    if (text.includes("weekly") || text.includes("limites semanales"))
+      return "weekly";
+    if (text.includes("plan usage") || text.includes("limites de uso del plan"))
+      return "session";
     return null;
   }
 
@@ -218,7 +262,7 @@
       for (const span of row.querySelectorAll("span")) {
         if (span.children.length) continue;
         const t = (span.textContent || "").trim();
-        if (/^Resets\s/i.test(t)) return t;
+        if (/^(Resets\s|Se\s+restablece\b)/i.test(t)) return t;
       }
     }
     return null;
@@ -259,11 +303,9 @@
         )
           continue;
         if (s.hasAttribute("data-pace-augmented")) return s;
-        if (
-          s.children.length === 0 &&
-          /^\d+%\s*used$/i.test((s.textContent || "").trim())
-        ) {
-          return s;
+        if (s.children.length === 0) {
+          const t = (s.textContent || "").trim();
+          if (/^\d+%\s*used$/i.test(t) || /^\d+%\s*usado$/i.test(t)) return s;
         }
       }
     }
@@ -275,9 +317,29 @@
    * Idempotent: subsequent calls only update text/color when they actually
    * change, so the MutationObserver doesn't loop on our own writes.
    */
-  function augmentUsedSpan(usedSpan, usagePct, result, color) {
+  function detectLocale(resetText, usedText) {
+    const combined = normalizeText(`${resetText || ""} ${usedText || ""}`);
+    if (combined.includes("se restablece") || combined.includes("usado"))
+      return "es";
+    return "en";
+  }
+
+  function augmentUsedSpan(
+    usedSpan,
+    usagePct,
+    result,
+    color,
+    resetText,
+    usedText,
+  ) {
     let inner = usedSpan.querySelector(":scope > [data-pace-used]");
     let paceLine = usedSpan.querySelector(":scope > [data-pace-line]");
+    let locale = usedSpan.dataset.paceLocale;
+
+    if (!locale) {
+      locale = detectLocale(resetText, usedText);
+      usedSpan.dataset.paceLocale = locale;
+    }
 
     if (!inner || !paceLine) {
       // First run on this span — restructure into a flex column.
@@ -307,10 +369,12 @@
       usedSpan.appendChild(paceLine);
     }
 
-    const paceText = `Pace: ${formatPace(result.pace)}`;
+    const paceLabel = locale === "es" ? "Ritmo" : "Pace";
+    const usedLabel = locale === "es" ? "usado" : "used";
+    const paceText = `${paceLabel}: ${formatPace(result.pace)}`;
     if (inner.textContent !== paceText) inner.textContent = paceText;
 
-    const lineText = `${usagePct}% used`;
+    const lineText = `${usagePct}% ${usedLabel}`;
     if (paceLine.textContent !== lineText) paceLine.textContent = lineText;
 
     if (inner.dataset.appliedColor !== color) {
@@ -328,13 +392,13 @@
       if (barCount > 1) return;
       for (const s of row.querySelectorAll("span")) {
         if (s.hasAttribute("data-pace-augmented")) continue;
-        if (
-          s.children.length === 0 &&
-          /^\d+%\s*used$/i.test((s.textContent || "").trim())
-        ) {
-          s.style.setProperty("display", "inline-block", "important");
-          s.style.setProperty("text-align", "center", "important");
-          return;
+        if (s.children.length === 0) {
+          const t = (s.textContent || "").trim();
+          if (/^\d+%\s*used$/i.test(t) || /^\d+%\s*usado$/i.test(t)) {
+            s.style.setProperty("display", "inline-block", "important");
+            s.style.setProperty("text-align", "center", "important");
+            return;
+          }
         }
       }
     }
@@ -432,7 +496,17 @@
         applyStyle(fill, color);
         ensureTick(pb, result.elapsedPct);
         const usedSpan = findUsedSpan(pb);
-        if (usedSpan) augmentUsedSpan(usedSpan, usagePct, result, color);
+        if (usedSpan) {
+          const usedText = (usedSpan.textContent || "").trim();
+          augmentUsedSpan(
+            usedSpan,
+            usagePct,
+            result,
+            color,
+            resetText,
+            usedText,
+          );
+        }
       } else {
         applyStyle(fill, NEUTRAL_COLOR);
         removeTick(pb);
