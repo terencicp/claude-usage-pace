@@ -189,6 +189,7 @@
     }
     return {
       position: Math.max(0, Math.min(100, position)),
+      pace,
       elapsedPct,
     };
   }
@@ -233,6 +234,110 @@
     fill.style.setProperty("background-color", color, "important");
     fill.style.setProperty("background-image", "none", "important");
     lastApplied.set(fill, color);
+  }
+
+  /** Format pace as a percentage string: 0.68 → "68%", 1.20 → "120%", ∞ → "∞". */
+  function formatPace(pace) {
+    return Number.isFinite(pace) ? `${Math.round(pace * 100)}%` : "∞";
+  }
+
+  /**
+   * Locate the "X% used" span associated with a progressbar. Returns either
+   * a fresh leaf span (first run) or a previously-augmented wrapper span.
+   */
+  function findUsedSpan(pb) {
+    let row = pb.parentElement;
+    for (let i = 0; row && i < 6; i++, row = row.parentElement) {
+      const barCount = row.querySelectorAll(
+        '[role="progressbar"][aria-label="Usage"]',
+      ).length;
+      if (barCount > 1) return null;
+      for (const s of row.querySelectorAll("span")) {
+        if (
+          s.hasAttribute("data-pace-used") ||
+          s.hasAttribute("data-pace-line")
+        )
+          continue;
+        if (s.hasAttribute("data-pace-augmented")) return s;
+        if (
+          s.children.length === 0 &&
+          /^\d+%\s*used$/i.test((s.textContent || "").trim())
+        ) {
+          return s;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Augment the "X% used" span with a small second line showing pace.
+   * Idempotent: subsequent calls only update text/color when they actually
+   * change, so the MutationObserver doesn't loop on our own writes.
+   */
+  function augmentUsedSpan(usedSpan, usagePct, result, color) {
+    let inner = usedSpan.querySelector(":scope > [data-pace-used]");
+    let paceLine = usedSpan.querySelector(":scope > [data-pace-line]");
+
+    if (!inner || !paceLine) {
+      // First run on this span — restructure into a flex column.
+      usedSpan.textContent = "";
+      usedSpan.style.setProperty("display", "inline-flex", "important");
+      usedSpan.style.setProperty("flex-direction", "column", "important");
+      usedSpan.style.setProperty("align-items", "center", "important");
+      usedSpan.style.setProperty("text-align", "center", "important");
+      usedSpan.style.setProperty("line-height", "1.15", "important");
+      usedSpan.setAttribute("data-pace-augmented", "1");
+
+      inner = document.createElement("span");
+      inner.setAttribute("data-pace-used", "1");
+      inner.style.setProperty("white-space", "nowrap", "important");
+      usedSpan.appendChild(inner);
+
+      paceLine = document.createElement("span");
+      paceLine.setAttribute("data-pace-line", "1");
+      paceLine.style.setProperty("font-size", "0.78em", "important");
+      paceLine.style.setProperty("white-space", "nowrap", "important");
+      paceLine.style.setProperty("margin-top", "1px", "important");
+      paceLine.style.setProperty(
+        "font-variant-numeric",
+        "tabular-nums",
+        "important",
+      );
+      usedSpan.appendChild(paceLine);
+    }
+
+    const paceText = `Pace: ${formatPace(result.pace)}`;
+    if (inner.textContent !== paceText) inner.textContent = paceText;
+
+    const lineText = `${usagePct}% used`;
+    if (paceLine.textContent !== lineText) paceLine.textContent = lineText;
+
+    if (inner.dataset.appliedColor !== color) {
+      inner.style.setProperty("color", color, "important");
+      inner.dataset.appliedColor = color;
+    }
+  }
+
+  function centerPlainUsedSpan(pb) {
+    let row = pb.parentElement;
+    for (let i = 0; row && i < 6; i++, row = row.parentElement) {
+      const barCount = row.querySelectorAll(
+        '[role="progressbar"][aria-label="Usage"]',
+      ).length;
+      if (barCount > 1) return;
+      for (const s of row.querySelectorAll("span")) {
+        if (s.hasAttribute("data-pace-augmented")) continue;
+        if (
+          s.children.length === 0 &&
+          /^\d+%\s*used$/i.test((s.textContent || "").trim())
+        ) {
+          s.style.setProperty("display", "inline-block", "important");
+          s.style.setProperty("text-align", "center", "important");
+          return;
+        }
+      }
+    }
   }
 
   /**
@@ -326,9 +431,12 @@
         const color = paceColor(result.position);
         applyStyle(fill, color);
         ensureTick(pb, result.elapsedPct);
+        const usedSpan = findUsedSpan(pb);
+        if (usedSpan) augmentUsedSpan(usedSpan, usagePct, result, color);
       } else {
         applyStyle(fill, NEUTRAL_COLOR);
         removeTick(pb);
+        centerPlainUsedSpan(pb);
       }
     }
   }
