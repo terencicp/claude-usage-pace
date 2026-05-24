@@ -8,6 +8,7 @@ and recolors them based on whether you're **underfarming, perfectly pacing,
 or about to get rate-limited into oblivion.** Bars that aren't tied to a
 reset window get flattened to neutral grey. That tick mark on the bar?
 That's the elapsed-time marker so you know how deep into the reset window you are.
+The "Pace: X%" is your grind score so you know if you're ahead or sandbagging.
 
 The mission: **use 100% of your sub. Squeeze every drop. No quota survives.**
 
