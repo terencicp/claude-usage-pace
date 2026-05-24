@@ -4,18 +4,15 @@
   "version": "1.0.0",
   "description": "Recolors the Claude.ai usage bars along a green→yellow→red OKLCH gradient based on whether you're ahead of, on, or over pace for the current reset window.",
   "icons": {
-    "16":  "icons/icon16.png",
-    "32":  "icons/icon32.png",
-    "48":  "icons/icon48.png",
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://claude.ai/*",
-        "https://*.claude.ai/*"
-      ],
-      "js": ["content.js"],
+      "matches": ["https://claude.ai/*", "https://*.claude.ai/*"],
+      "js": ["pace_config.js", "pace_parsing.js", "pace_dom.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }
