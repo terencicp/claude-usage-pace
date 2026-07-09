@@ -11,7 +11,8 @@
   ns.KNEE_POSITION = (ns.GRADIENT_START + 100) / 2; // yellow midpoint
   ns.NEUTRAL_COLOR = "oklch(55% 0 0)"; // grey for non-paced bars
   ns.RECHECK_INTERVAL_MS = 60_000; // resample once a minute
-  ns.USAGE_BAR_SELECTOR = '[role="progressbar"][aria-label="Usage"]';
+  ns.USAGE_BAR_SELECTOR =
+    '[role="progressbar"][aria-label="Usage"], [role="meter"][aria-labelledby]';
   ns.RESET_TEXT_RE = /^(Resets\s|Se\s+restablece\b)/i;
   ns.USED_TEXT_RE = /^\d+%\s*used$/i;
   ns.USED_TEXT_ES_RE = /^\d+%\s*usado$/i;
@@ -25,6 +26,10 @@
     if (p <= ns.GRADIENT_START) return "#066c1c";
     const t = ((p - ns.GRADIENT_START) / (100 - ns.GRADIENT_START)) * 100;
     return `color-mix(in oklch, #066c1c, #a62e3f ${t.toFixed(2)}%)`;
+  };
+
+  ns.trackColor = function trackColor(color) {
+    return `color-mix(in oklch, ${color}, white 82%)`;
   };
 
   // Format pace as a percentage string.

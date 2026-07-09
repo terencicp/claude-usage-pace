@@ -18,7 +18,8 @@
       if (result) {
         const color = ns.paceColor(result.position);
         ns.applyStyle(fill, color);
-        ns.ensureTick(pb, result.elapsedPct);
+        ns.applyTrackStyle(pb, color);
+        ns.ensureTick(pb, result.elapsedPct, color);
         const usedSpan = ns.findUsedSpan(pb);
         if (usedSpan) {
           const usedText = (usedSpan.textContent || "").trim();
@@ -33,6 +34,7 @@
         }
       } else {
         ns.applyStyle(fill, ns.NEUTRAL_COLOR);
+        ns.applyTrackStyle(pb, ns.NEUTRAL_COLOR);
         ns.removeTick(pb);
         ns.centerPlainUsedSpan(pb);
       }

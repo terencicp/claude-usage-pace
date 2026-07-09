@@ -35,6 +35,15 @@
     lastApplied.set(fill, color);
   };
 
+  const lastTrackApplied = new WeakMap();
+  ns.applyTrackStyle = function applyTrackStyle(pb, color) {
+    const trackColor = ns.trackColor(color);
+    if (lastTrackApplied.get(pb) === trackColor) return;
+    pb.style.setProperty("background-color", trackColor, "important");
+    pb.style.setProperty("background-image", "none", "important");
+    lastTrackApplied.set(pb, trackColor);
+  };
+
   ns.findUsedSpan = function findUsedSpan(pb) {
     return walkRow(pb, 6, (row) => {
       for (const s of row.querySelectorAll("span")) {
@@ -143,7 +152,12 @@
       : "#121212";
   };
 
-  ns.ensureTick = function ensureTick(pb, elapsedPct) {
+  ns.tickColor = function tickColor(color) {
+    if (matchMedia("(prefers-color-scheme: dark)").matches) return "#fff";
+    return `color-mix(in oklch, ${color}, black 35%)`;
+  };
+
+  ns.ensureTick = function ensureTick(pb, elapsedPct, color) {
     const host = pb.parentElement;
     if (!host) return;
 
@@ -174,7 +188,7 @@
     const leftStr = `${elapsedPct.toFixed(2)}%`;
     if (tick.style.left !== leftStr) tick.style.left = leftStr;
 
-    const tickColor = ns.pickTickColor(pb);
+    const tickColor = color ? ns.tickColor(color) : ns.pickTickColor(pb);
     if (tick.dataset.appliedColor !== tickColor) {
       tick.style.setProperty("background-color", tickColor, "important");
       tick.dataset.appliedColor = tickColor;
