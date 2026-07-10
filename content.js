@@ -9,9 +9,18 @@
     const bars = document.querySelectorAll(ns.USAGE_BAR_SELECTOR);
     for (const pb of bars) {
       const fill = pb.firstElementChild;
-      if (!fill) continue;
 
       const usagePct = parseInt(pb.getAttribute("aria-valuenow") || "0", 10);
+      if (usagePct === 0) {
+        if (fill) ns.applyStyle(fill, ns.NEUTRAL_COLOR);
+        ns.applyTrackStyle(pb, ns.NEUTRAL_COLOR);
+        ns.removeTick(pb);
+        ns.centerPlainUsedSpan(pb);
+        continue;
+      }
+
+      if (!fill) continue;
+
       const resetText = ns.findResetText(pb);
       const result = ns.computePace(usagePct, resetText, pb);
 
