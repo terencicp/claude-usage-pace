@@ -14,6 +14,37 @@
     return parseInt(m[2] || "0", 10) * 60 + parseInt(m[3] || "0", 10);
   };
 
+  // 12 h hour + "AM"/"PM"/"a"/"p" to 24 h; no meridiem means already 24 h.
+  function to24h(hour, meridiem) {
+    if (!meridiem) return hour;
+    return (hour % 12) + (/^p/i.test(meridiem) ? 12 : 0);
+  }
+
+  // Minutes until the next hour:minute, on targetDay (0 = Sun) or any day if null.
+  function minutesUntil(hour, minute, targetDay) {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(hour, minute, 0, 0);
+    let daysAhead = targetDay === null ? 0 : (targetDay - now.getDay() + 7) % 7;
+    if (daysAhead === 0 && next <= now) daysAhead = targetDay === null ? 1 : 7;
+    next.setDate(next.getDate() + daysAhead);
+    return Math.max(0, Math.floor((next - now) / 60_000));
+  }
+
+  ns.parseTimeOfDay = function parseTimeOfDay(text) {
+    // English: "Resets at 12:20 PM"
+    // Spanish: "Se restablece a las 12:20"
+    const m = text.match(
+      /(?:Resets\s+at|Se\s+restablece\s+a\s+las?)\s+(\d{1,2}):(\d{2})\s*(?:([ap])\.?\s*m)?/i,
+    );
+    if (!m) return null;
+    return minutesUntil(
+      to24h(parseInt(m[1], 10), m[3]),
+      parseInt(m[2], 10),
+      null,
+    );
+  };
+
   const DAY_MAP = {
     sun: 0,
     mon: 1,
@@ -56,18 +87,14 @@
     );
     if (!m12 && !m24) return null;
 
-    const now = new Date();
-    const next = new Date(now);
     let targetDay;
     let hour;
     let minute;
 
     if (m12) {
       targetDay = DAY_MAP[m12[1].slice(0, 3).toLowerCase()];
-      hour = parseInt(m12[2], 10);
+      hour = to24h(parseInt(m12[2], 10), m12[4]);
       minute = parseInt(m12[3], 10);
-      if (m12[4].toUpperCase() === "PM" && hour !== 12) hour += 12;
-      if (m12[4].toUpperCase() === "AM" && hour === 12) hour = 0;
     } else {
       const dayKey = ns.normalizeText(m24[1]).slice(0, 3);
       targetDay = DAY_MAP[dayKey];
@@ -76,13 +103,7 @@
     }
 
     if (targetDay === undefined) return null;
-    next.setHours(hour, minute, 0, 0);
-    let daysAhead = targetDay - now.getDay();
-    if (daysAhead < 0) daysAhead += 7;
-    if (daysAhead === 0 && next <= now) daysAhead = 7;
-    next.setDate(next.getDate() + daysAhead);
-
-    return Math.max(0, Math.floor((next - now) / 60_000));
+    return minutesUntil(hour, minute, targetDay);
   };
 
   ns.inferKindFromSection = function inferKindFromSection(pb) {
@@ -109,13 +130,14 @@
   ns.elapsedAndKind = function elapsedAndKind(resetText, pb) {
     if (!resetText) return null;
 
-    const rel = ns.parseRelative(resetText);
-    if (rel !== null) {
-      const kind = ns.inferKind(pb, rel);
+    const remainingMin =
+      ns.parseRelative(resetText) ?? ns.parseTimeOfDay(resetText);
+    if (remainingMin !== null) {
+      const kind = ns.inferKind(pb, remainingMin);
       const win =
         kind === "session" ? ns.SESSION_WINDOW_MIN : ns.WEEK_WINDOW_MIN;
       return {
-        elapsedPct: ((win - rel) / win) * 100,
+        elapsedPct: ((win - remainingMin) / win) * 100,
         kind,
       };
     }

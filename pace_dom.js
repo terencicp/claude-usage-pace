@@ -44,6 +44,11 @@
     lastTrackApplied.set(pb, trackColor);
   };
 
+  ns.applyBarHeight = function applyBarHeight(pb) {
+    if (pb.style.getPropertyValue("height") === ns.BAR_HEIGHT) return;
+    pb.style.setProperty("height", ns.BAR_HEIGHT, "important");
+  };
+
   ns.findUsedSpan = function findUsedSpan(pb) {
     return walkRow(pb, 6, (row) => {
       for (const s of row.querySelectorAll("span")) {

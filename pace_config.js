@@ -10,6 +10,7 @@
   ns.GRADIENT_START = 21; // first stop's gradient %
   ns.KNEE_POSITION = (ns.GRADIENT_START + 100) / 2; // yellow midpoint
   ns.NEUTRAL_COLOR = "oklch(55% 0 0)"; // grey for non-paced bars
+  ns.BAR_HEIGHT = "8px"; // site's own bars are a skinny 4 px
   ns.RECHECK_INTERVAL_MS = 60_000; // resample once a minute
   ns.USAGE_BAR_SELECTOR =
     '[role="progressbar"][aria-label="Usage"], [role="meter"][aria-labelledby]';

@@ -9,6 +9,7 @@
     const bars = document.querySelectorAll(ns.USAGE_BAR_SELECTOR);
     for (const pb of bars) {
       const fill = pb.firstElementChild;
+      ns.applyBarHeight(pb);
 
       const usagePct = parseInt(pb.getAttribute("aria-valuenow") || "0", 10);
       if (usagePct === 0) {
