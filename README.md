@@ -14,6 +14,7 @@ The mission: **use 100% of your sub. Squeeze every drop. No quota survives.**
 
 ![Claude Usage Pace screenshot](screenshot.png)
 
+Supports session and weekly bars, including Fable's separate weekly limit.
 English and Spanish only.
 
 ## Install (unpacked)

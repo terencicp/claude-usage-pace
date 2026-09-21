@@ -14,7 +14,8 @@
   ns.RECHECK_INTERVAL_MS = 60_000; // resample once a minute
   ns.USAGE_BAR_SELECTOR =
     '[role="progressbar"][aria-label="Usage"], [role="meter"][aria-labelledby]';
-  ns.RESET_TEXT_RE = /^(Resets\s|Se\s+restablece\b)/i;
+  // Model-specific limits can prefix the reset with a description and middle dot.
+  ns.RESET_TEXT_RE = /(?:^|·\s*)(Resets\s|Se\s+restablece\b)/i;
   ns.USED_TEXT_RE = /^\d+%\s*used$/i;
   ns.USED_TEXT_ES_RE = /^\d+%\s*usado$/i;
 
