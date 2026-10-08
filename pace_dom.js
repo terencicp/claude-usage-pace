@@ -4,6 +4,32 @@
 
   const ns = (window.__usagePace = window.__usagePace || {});
 
+  ns.styleUsageHeadline = function styleUsageHeadline(bars) {
+    const firstBar = bars[0];
+    if (!firstBar) return;
+    const headline = [...document.querySelectorAll('[data-settings-item] > p.text-title.font-semibold')]
+      .find((el) => el.tagName === "P" && (el.compareDocumentPosition(firstBar) & 4));
+    if (!headline) return;
+    for (const [property, value] of [["font-size", "20px"], ["line-height", "1.3"], ["margin-bottom", "-4px"]]) {
+      if (headline.style.getPropertyValue(property) !== value
+        || headline.style.getPropertyPriority(property) !== "important") {
+        headline.style.setProperty(property, value, "important");
+      }
+    }
+  };
+
+  ns.hideTopBuyMoreUsage = function hideTopBuyMoreUsage(bars) {
+    const firstBar = bars[0];
+    if (!firstBar) return;
+    const button = [...document.querySelectorAll('button[data-cds="Button"]')].find((el) =>
+      (el.textContent || "").trim() === "Buy more usage"
+      && (el.compareDocumentPosition(firstBar) & 4));
+    if (button && (button.style.getPropertyValue("display") !== "none"
+      || button.style.getPropertyPriority("display") !== "important")) {
+      button.style.setProperty("display", "none", "important");
+    }
+  };
+
   function walkRow(pb, maxDepth, onRow) {
     let row = pb.parentElement;
     for (let i = 0; row && i < maxDepth; i++, row = row.parentElement) {
@@ -15,15 +41,157 @@
     return null;
   }
 
-  ns.findResetText = function findResetText(progressbar) {
+  ns.findResetSpan = function findResetSpan(progressbar) {
     return walkRow(progressbar, 10, (row) => {
       for (const span of row.querySelectorAll("span")) {
         if (span.children.length) continue;
         const t = (span.textContent || "").trim();
-        if (ns.RESET_TEXT_RE.test(t)) return t;
+        if (ns.RESET_TEXT_RE.test(t)) return span;
       }
       return undefined;
     });
+  };
+
+  ns.findResetText = function findResetText(progressbar) {
+    return ns.findResetSpan(progressbar)?.textContent.trim() || null;
+  };
+
+  ns.renameLimitLabel = function renameLimitLabel(pb) {
+    const labels = {
+      "current session": "Session limit",
+      "this week": "Weekly limit",
+      "fable this week": "Fable (weekly)",
+    };
+    walkRow(pb, 10, (row) => {
+      for (const span of row.querySelectorAll("span")) {
+        if (span.children.length) continue;
+        const replacement = labels[(span.textContent || "").trim().toLowerCase()];
+        if (replacement) {
+          span.textContent = replacement;
+          return true;
+        }
+      }
+      return undefined;
+    });
+  };
+
+  // Keep the deadline separate from the rounded label so our own DOM changes
+  // never restart the countdown or reduce the precision of pace calculations.
+  const resetCountdowns = new WeakMap();
+  ns.updateResetCountdown = function updateResetCountdown(pb) {
+    const span = ns.findResetSpan(pb);
+    if (!span) return null;
+    const text = span.textContent.trim();
+    let state = resetCountdowns.get(span);
+    if (!state || text !== state.displayedText) {
+      const timing = ns.elapsedAndKind(text, pb);
+      if (!timing || !Number.isFinite(timing.remainingMin) || timing.remainingMin < 0) {
+        if (state && span.title === state.title) span.title = "";
+        resetCountdowns.delete(span);
+        return text;
+      }
+      const match = /Resets\s|Se\s+restablece\b/i.exec(text);
+      state = {
+        resetAt: Date.now() + timing.remainingMin * 60_000,
+        prefix: text.slice(0, match.index).replace(/^Separate weekly limit for Fable\s*·\s*/i, ""),
+        label: ns.detectLocale(text) === "es" ? "Se restablece en" : "Resets in",
+      };
+      state.title = new Intl.DateTimeFormat(ns.detectLocale(text), {
+        weekday: "long", year: "numeric", month: "long", day: "numeric",
+        hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short",
+      }).format(state.resetAt);
+      resetCountdowns.set(span, state);
+    }
+    const remainingMin = Math.max(0, (state.resetAt - Date.now()) / 60_000);
+    state.displayedText = `${state.prefix}${state.label} ${ns.formatResetCountdown(remainingMin)}`;
+    if (span.textContent !== state.displayedText) span.textContent = state.displayedText;
+    if (span.title !== state.title) span.title = state.title;
+    return `${state.prefix}${state.label} ${remainingMin} min`;
+  };
+
+  ns.findLimitRow = function findLimitRow(progressbar) {
+    return walkRow(progressbar, 10, (row) => {
+      for (const span of row.querySelectorAll("span")) {
+        if (!span.children.length && ns.RESET_TEXT_RE.test(span.textContent.trim())) return row;
+      }
+      return undefined;
+    });
+  };
+
+  // Share an intrinsic label column so every bar starts just after the widest
+  // label/countdown, instead of reserving Claude's fixed w-52 column.
+  ns.compactUsageRows = function compactUsageRows(bars) {
+    const parents = new Set();
+    for (const pb of bars) {
+      const row = ns.findLimitRow(pb);
+      const reset = ns.findResetSpan(pb);
+      if (!row?.children || !reset) continue;
+      const labelColumn = [...row.children].find((el) => el.contains(reset));
+      const meterColumn = [...row.children].find((el) => el.contains(pb));
+      if (!labelColumn || !meterColumn || labelColumn === meterColumn) continue;
+      for (const [el, name] of [[row, "data-pace-row"],
+        [labelColumn, "data-pace-label-column"], [meterColumn, "data-pace-meter-column"]]) {
+        if (!el.hasAttribute(name)) el.setAttribute(name, "");
+      }
+      if (row.parentElement) parents.add(row.parentElement);
+    }
+    for (const parent of parents) {
+      if ([...parent.children].every((el) => el.matches("[data-pace-row], [data-pace-feedback]"))
+        && !parent.hasAttribute("data-pace-rows")) parent.setAttribute("data-pace-rows", "");
+    }
+  };
+
+  // Extra feedback belongs to its own limit, leaving Claude's weekly headline intact.
+  const feedback = new Map();
+  ns.updateLimitFeedback = function updateLimitFeedback(pb, usagePct, result, resetText) {
+    const row = ns.findLimitRow(pb);
+    const locale = ns.detectLocale(resetText);
+    const isFable = /\bfable\b/i.test(row?.textContent || "");
+    const label = isFable ? "Fable (weekly)" : result?.kind === "session"
+      ? locale === "es" ? "Sesión actual" : "Session limit" : null;
+    const text = label && row ? ns.limitForecast(usagePct, result, label, locale) : null;
+    let state = feedback.get(pb);
+    if (!text) {
+      state?.message.remove();
+      feedback.delete(pb);
+      return;
+    }
+    if (state && (state.row !== row || !state.message.isConnected)) {
+      state.message.remove();
+      feedback.delete(pb);
+      state = null;
+    }
+    if (!state) {
+      const message = document.createElement("p");
+      message.setAttribute("data-pace-feedback", "1");
+      Object.assign(message.style, {
+        fontSize: "14px", lineHeight: "1.45", margin: "8px 0 16px",
+        maxWidth: "100%", textWrap: "pretty",
+      });
+      if (row.tagName === "SECTION") row.appendChild(message);
+      else row.insertAdjacentElement("afterend", message);
+      state = { row, message };
+      feedback.set(pb, state);
+    }
+    if (state.message.textContent !== text) state.message.textContent = text;
+    const color = ns.isDarkTheme(pb) ? "#b9b9b9" : "#646464";
+    if (state.message.dataset.color !== color) {
+      state.message.style.color = color;
+      state.message.dataset.color = color;
+    }
+    const title = locale === "es" ? "Estimación basada en que tu ritmo medio de uso se mantenga."
+      : "Estimate assumes your average usage rate continues.";
+    if (state.message.title !== title) state.message.title = title;
+  };
+
+  ns.cleanupLimitFeedback = function cleanupLimitFeedback(bars) {
+    const current = new Set(bars);
+    for (const [pb, state] of feedback) {
+      if (!pb.isConnected || !current.has(pb)) {
+        state.message.remove();
+        feedback.delete(pb);
+      }
+    }
   };
 
   // WeakMap-based cache so mutation feedback loops self-terminate.
@@ -37,7 +205,7 @@
 
   const lastTrackApplied = new WeakMap();
   ns.applyTrackStyle = function applyTrackStyle(pb, color) {
-    const trackColor = ns.trackColor(color);
+    const trackColor = ns.trackColor(color, ns.isDarkTheme(pb));
     if (lastTrackApplied.get(pb) === trackColor) return;
     pb.style.setProperty("background-color", trackColor, "important");
     pb.style.setProperty("background-image", "none", "important");
@@ -142,23 +310,29 @@
     });
   };
 
-  ns.pickTickColor = function pickTickColor(pb) {
-    for (let node = pb; node; node = node.parentElement) {
+  ns.isDarkTheme = function isDarkTheme(pb) {
+    // Inspect the page surface, excluding the bar's own tinted background.
+    for (let node = pb.parentElement; node; node = node.parentElement) {
       const m = getComputedStyle(node).backgroundColor.match(/[\d.]+/g);
       if (!m || m.length < 3) continue;
       const alpha = m.length >= 4 ? parseFloat(m[3]) : 1;
       if (alpha < 0.95) continue;
       const [r, g, b] = m.slice(0, 3).map(Number);
       const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      return lum < 128 ? "#f5f5f5" : "#121212";
+      return lum < 128;
     }
-    return matchMedia("(prefers-color-scheme: dark)").matches
-      ? "#f5f5f5"
-      : "#121212";
+    const root = document.documentElement;
+    if (root.classList.contains("dark") || root.dataset.theme === "dark") return true;
+    if (root.classList.contains("light") || root.dataset.theme === "light") return false;
+    return matchMedia("(prefers-color-scheme: dark)").matches;
   };
 
-  ns.tickColor = function tickColor(color) {
-    if (matchMedia("(prefers-color-scheme: dark)").matches) return "#fff";
+  ns.pickTickColor = function pickTickColor(pb) {
+    return ns.isDarkTheme(pb) ? "#f5f5f5" : "#121212";
+  };
+
+  ns.tickColor = function tickColor(color, pb) {
+    if (ns.isDarkTheme(pb)) return "#fff";
     return `color-mix(in oklch, ${color}, black 35%)`;
   };
 
@@ -193,7 +367,7 @@
     const leftStr = `${elapsedPct.toFixed(2)}%`;
     if (tick.style.left !== leftStr) tick.style.left = leftStr;
 
-    const tickColor = color ? ns.tickColor(color) : ns.pickTickColor(pb);
+    const tickColor = color ? ns.tickColor(color, pb) : ns.pickTickColor(pb);
     if (tick.dataset.appliedColor !== tickColor) {
       tick.style.setProperty("background-color", tickColor, "important");
       tick.dataset.appliedColor = tickColor;

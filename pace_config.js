@@ -30,8 +30,10 @@
     return `color-mix(in oklch, #066c1c, #a62e3f ${t.toFixed(2)}%)`;
   };
 
-  ns.trackColor = function trackColor(color) {
-    return `color-mix(in oklch, ${color}, white 82%)`;
+  ns.trackColor = function trackColor(color, dark = false) {
+    return dark
+      ? `color-mix(in oklch, ${color}, #202020 72%)`
+      : `color-mix(in oklch, ${color}, white 82%)`;
   };
 
   // Format pace as a percentage string.

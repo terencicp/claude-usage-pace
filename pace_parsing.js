@@ -5,13 +5,22 @@
   const ns = (window.__usagePace = window.__usagePace || {});
 
   ns.parseRelative = function parseRelative(text) {
-    // English: "Resets in 4 hr 52 min" / "Resets in 23 min" / "Resets in 2 hr"
-    // Spanish: "Se restablece en 4 h 12 min" / "Se restablece en 23 min"
-    const m = text.match(
-      /(Resets\s+in|Se\s+restablece\s+en)\s+(?:(\d+)\s*(?:hr|h|hora|horas))?\s*(?:(\d+)\s*(?:min|mins|minutos))?/i,
-    );
-    if (!m || (!m[2] && !m[3])) return null;
-    return parseInt(m[2] || "0", 10) * 60 + parseInt(m[3] || "0", 10);
+    // Include days for weekly countdowns, even near the end of the weekly window.
+    const match = text.match(/(?:Resets\s+in|Se\s+restablece\s+en)\s+(.+)$/i);
+    if (!match) return null;
+    let found = false;
+    let minutes = 0;
+    const rest = ns.normalizeText(match[1]).replace(
+      /(\d+(?:[.,]\d+)?)\s*(days?|dias?|d|hours?|hrs?|horas?|h|minutes?|mins?|minutos?|m|seconds?|secs?|segundos?|s)\b/gi,
+      (_, amount, unit) => {
+        found = true;
+        const factor = unit.startsWith("d") ? 1440 : unit.startsWith("h") ? 60
+          : unit.startsWith("m") ? 1 : 1 / 60;
+        minutes += Number(amount.replace(",", ".")) * factor;
+        return "";
+      },
+    ).replace(/\b(?:and|y)\b|[\s,·]+/g, "");
+    return found && !rest ? minutes : null;
   };
 
   // 12 h hour + "AM"/"PM"/"a"/"p" to 24 h; no meridiem means already 24 h.
@@ -28,7 +37,7 @@
     let daysAhead = targetDay === null ? 0 : (targetDay - now.getDay() + 7) % 7;
     if (daysAhead === 0 && next <= now) daysAhead = targetDay === null ? 1 : 7;
     next.setDate(next.getDate() + daysAhead);
-    return Math.max(0, Math.floor((next - now) / 60_000));
+    return Math.max(0, (next - now) / 60_000);
   }
 
   ns.parseTimeOfDay = function parseTimeOfDay(text) {
@@ -76,6 +85,15 @@
     return "en";
   };
 
+  ns.formatResetCountdown = function formatResetCountdown(remainingMin) {
+    const minutes = Math.max(0, Math.floor(remainingMin));
+    const days = Math.floor(minutes / 1440);
+    const hours = Math.floor(minutes / 60) % 24;
+    if (days) return `${days}d ${hours}h`;
+    if (hours) return `${hours}h ${minutes % 60}m`;
+    return `${minutes}m`;
+  };
+
   ns.parseWeekday = function parseWeekday(text) {
     // English: "Resets Thu 6:00 PM"
     // Spanish: "Se restablece jue, 18:00"
@@ -121,6 +139,10 @@
   };
 
   ns.inferKind = function inferKind(pb, remainingMin) {
+    const row = ns.findLimitRow?.(pb);
+    const text = ns.normalizeText(row?.textContent);
+    if (/\bfable\b|this week|weekly|esta semana|semanal/.test(text)) return "weekly";
+    if (/current session|session limit|sesion actual/.test(text)) return "session";
     return (
       ns.inferKindFromSection(pb) ||
       (remainingMin > ns.SESSION_WINDOW_MIN ? "weekly" : "session")
@@ -139,6 +161,7 @@
       return {
         elapsedPct: ((win - remainingMin) / win) * 100,
         kind,
+        remainingMin,
       };
     }
     const wk = ns.parseWeekday(resetText);
@@ -146,6 +169,7 @@
       return {
         elapsedPct: ((ns.WEEK_WINDOW_MIN - wk) / ns.WEEK_WINDOW_MIN) * 100,
         kind: "weekly",
+        remainingMin: wk,
       };
     }
     return null;
@@ -154,6 +178,8 @@
   ns.computePace = function computePace(usagePct, resetText, pb) {
     const e = ns.elapsedAndKind(resetText, pb);
     if (!e) return null;
+    const windowMin = e.kind === "session" ? ns.SESSION_WINDOW_MIN : ns.WEEK_WINDOW_MIN;
+    if (e.remainingMin <= 0 || e.remainingMin > windowMin) return null;
     const elapsedPct = Math.max(0, Math.min(100, e.elapsedPct));
 
     // Edge case: window just opened.
@@ -163,7 +189,7 @@
         pace: usagePct > 0 ? Infinity : 0,
         elapsedPct,
         kind: e.kind,
-        resetsToday: e.resetsToday,
+        remainingMin: e.remainingMin,
       };
     }
 
@@ -181,6 +207,29 @@
       position: Math.max(0, Math.min(100, position)),
       pace,
       elapsedPct,
+      kind: e.kind,
+      remainingMin: e.remainingMin,
     };
+  };
+
+  ns.limitForecast = function limitForecast(usagePct, result, label, locale, now = Date.now()) {
+    if (!result || !(result.pace > 1) || !Number.isFinite(usagePct)
+      || usagePct <= 0 || usagePct > 100) return null;
+    const es = locale === "es";
+    if (usagePct === 100) return es ? `${label}: Has alcanzado este límite. Espera al reinicio.`
+      : `${label}: You’ve reached this limit. Wait for the reset.`;
+    if (!Number.isFinite(result.pace) || result.elapsedPct < 0.5) return es
+      ? `${label}: Vas por encima del ritmo, pero este periodo acaba de empezar. La estimación se estabilizará con el tiempo.`
+      : `${label}: You’re above pace, but this window just started. The estimate will settle as more time passes.`;
+    const windowMin = result.kind === "session" ? ns.SESSION_WINDOW_MIN : ns.WEEK_WINDOW_MIN;
+    const elapsedMin = windowMin * result.elapsedPct / 100;
+    const runsOutAt = now + elapsedMin * (100 - usagePct) / usagePct * 60_000;
+    const when = new Intl.DateTimeFormat(es ? "es" : "en", {
+      ...(result.kind === "weekly" || new Date(runsOutAt).toDateString() !== new Date(now).toDateString()
+        ? { weekday: "long" } : {}),
+      hour: "numeric", minute: "2-digit",
+    }).format(runsOutAt);
+    return es ? `${label}: A este ritmo, podrías alcanzar el límite alrededor de ${when}, antes del reinicio.`
+      : `${label}: At this pace, you could hit the limit around ${when}, before the reset.`;
   };
 })();

@@ -1,0 +1,31 @@
+/* Fit the label column to its text and keep all usage bars aligned. */
+[data-pace-rows] {
+  display: grid !important;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) !important;
+  column-gap: 16px !important;
+}
+
+[data-pace-row] {
+  display: grid !important;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) !important;
+  column-gap: 16px !important;
+}
+
+[data-pace-rows] > [data-pace-row] {
+  grid-column: 1 / -1 !important;
+  grid-template-columns: subgrid !important;
+}
+
+[data-pace-label-column] {
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+[data-pace-meter-column] { min-width: 0 !important; }
+[data-pace-rows] > [data-pace-feedback] { grid-column: 1 / -1; }
+
+@media (max-width: 480px) {
+  [data-pace-rows], [data-pace-row] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
