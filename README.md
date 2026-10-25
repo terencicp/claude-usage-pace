@@ -17,6 +17,10 @@ The mission: **use 100% of your sub. Squeeze every drop. No quota survives.**
 Supports session and weekly bars, including Fable's separate weekly limit.
 English and Spanish only.
 
+The expandable weekly section shares aligned bars with the session limit.
+Model usage segments follow the pace color, and narrow screens stack labels
+above the meters while keeping Claude's weekly toggle available.
+
 All limit resets show a live countdown: `2d 10h` for weekly resets, or
 `4h 23m` for resets under a day, including sessions with 0% usage.
 Hover over a countdown to see the full reset date, time, and time zone.
@@ -48,3 +52,7 @@ Now go max that sub. Touch grass after.
 Run `node --test tests/*.test.cjs` to check independent session/Fable
 projections, the 100% threshold, newly opened windows, midnight crossings,
 and live reset countdowns in English and Spanish.
+
+With Playwright available on `NODE_PATH`, run `node tests/layout.browser.cjs`
+to check the current Claude layout, nested weekly limits, native toggle,
+usage segments, page updates, and mobile sizing against a local HTML fixture.

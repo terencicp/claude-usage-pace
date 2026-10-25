@@ -25,7 +25,7 @@
       const usagePct = parseInt(pb.getAttribute("aria-valuenow") || "0", 10);
       const resetText = ns.updateResetCountdown(pb);
       if (usagePct === 0) {
-        if (fill) ns.applyStyle(fill, ns.NEUTRAL_COLOR);
+        if (fill) ns.applyUsageFillStyle(pb, ns.NEUTRAL_COLOR);
         ns.applyTrackStyle(pb, ns.NEUTRAL_COLOR);
         ns.removeTick(pb);
         ns.centerPlainUsedSpan(pb);
@@ -43,7 +43,7 @@
 
       if (result) {
         const color = ns.paceColor(result.position);
-        ns.applyStyle(fill, color);
+        ns.applyUsageFillStyle(pb, color);
         ns.applyTrackStyle(pb, color);
         ns.ensureTick(pb, result.elapsedPct, color);
         const usedSpan = ns.findUsedSpan(pb);
@@ -59,7 +59,7 @@
           );
         }
       } else {
-        ns.applyStyle(fill, ns.NEUTRAL_COLOR);
+        ns.applyUsageFillStyle(pb, ns.NEUTRAL_COLOR);
         ns.applyTrackStyle(pb, ns.NEUTRAL_COLOR);
         ns.removeTick(pb);
         ns.centerPlainUsedSpan(pb);

@@ -1,5 +1,5 @@
 /* Fit the label column to its text and keep all usage bars aligned. */
-[data-pace-rows] {
+[data-pace-rows]:not([hidden]) {
   display: grid !important;
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr) !important;
   column-gap: 16px !important;
@@ -11,7 +11,8 @@
   column-gap: 16px !important;
 }
 
-[data-pace-rows] > [data-pace-row] {
+[data-pace-rows] > [data-pace-row],
+[data-pace-rows] > [data-pace-rows] {
   grid-column: 1 / -1 !important;
   grid-template-columns: subgrid !important;
 }
@@ -19,13 +20,15 @@
 [data-pace-label-column] {
   width: auto !important;
   min-width: 0 !important;
+  max-width: 24ch !important;
+  overflow-wrap: anywhere;
 }
 
 [data-pace-meter-column] { min-width: 0 !important; }
 [data-pace-rows] > [data-pace-feedback] { grid-column: 1 / -1; }
 
 @media (max-width: 480px) {
-  [data-pace-rows], [data-pace-row] {
+  [data-pace-rows]:not([hidden]), [data-pace-row] {
     grid-template-columns: minmax(0, 1fr) !important;
   }
 }

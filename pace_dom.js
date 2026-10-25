@@ -60,10 +60,23 @@
     const labels = {
       "current session": "Session limit",
       "this week": "Weekly limit",
+      "fable": "Fable (weekly)",
       "fable this week": "Fable (weekly)",
     };
     walkRow(pb, 10, (row) => {
       for (const span of row.querySelectorAll("span")) {
+        // The weekly label now lives in a button with an icon. Update just
+        // its text node so React's toggle and accessibility wiring survive.
+        const button = span.querySelector?.("button[aria-expanded]");
+        if (button) {
+          for (const node of button.childNodes) {
+            const replacement = node.nodeType === 3 && labels[node.textContent.trim().toLowerCase()];
+            if (replacement) {
+              node.textContent = replacement;
+              return true;
+            }
+          }
+        }
         if (span.children.length) continue;
         const replacement = labels[(span.textContent || "").trim().toLowerCase()];
         if (replacement) {
@@ -129,15 +142,41 @@
       const labelColumn = [...row.children].find((el) => el.contains(reset));
       const meterColumn = [...row.children].find((el) => el.contains(pb));
       if (!labelColumn || !meterColumn || labelColumn === meterColumn) continue;
+      for (const span of labelColumn.querySelectorAll("span")) {
+        if (!span.children.length && span.textContent.trim() === "Up to 50% of your weekly limit"
+          && span.style.getPropertyValue("display") !== "none") {
+          span.style.setProperty("display", "none", "important");
+        }
+      }
       for (const [el, name] of [[row, "data-pace-row"],
         [labelColumn, "data-pace-label-column"], [meterColumn, "data-pace-meter-column"]]) {
         if (!el.hasAttribute(name)) el.setAttribute(name, "");
       }
       if (row.parentElement) parents.add(row.parentElement);
     }
-    for (const parent of parents) {
-      if ([...parent.children].every((el) => el.matches("[data-pace-row], [data-pace-feedback]"))
-        && !parent.hasAttribute("data-pace-rows")) parent.setAttribute("data-pace-rows", "");
+    // Propagate the shared columns through Claude's Collapsible and panel
+    // wrappers, including an empty panel while its content is unmounted.
+    for (let parent of parents) {
+      while (parent?.children?.length) {
+        const panelIds = new Set([...parent.querySelectorAll("button[aria-controls]")]
+          .map((button) => button.getAttribute("aria-controls")));
+        if (![...parent.children].every((el) =>
+          el.matches("[data-pace-row], [data-pace-rows], [data-pace-feedback]")
+          || (el.id && panelIds.has(el.id) && !el.children.length))) break;
+        if (!parent.hasAttribute("data-pace-rows")) parent.setAttribute("data-pace-rows", "");
+        if (parent.matches("[data-settings-item], section")) break;
+        parent = parent.parentElement;
+      }
+    }
+  };
+
+  ns.applyUsageFillStyle = function applyUsageFillStyle(pb, color) {
+    // Scoped usage shares are separate native fills layered above the main
+    // one. Preserve their size/semantics and give them the same pace color.
+    for (const fill of pb.children) {
+      if (fill === pb.firstElementChild || fill.hasAttribute("data-usage-bar-fill")) {
+        ns.applyStyle(fill, color);
+      }
     }
   };
 
